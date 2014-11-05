@@ -74,7 +74,7 @@ class Sale:
         for line in self.lines:
             line.refresh_taxes()
 
-    def find_existing_line(self, product_id):
+    def find_existing_line(self, product_id, action='set'):
         """Return existing sale line for given product"""
         SaleLine = Pool().get('sale.line')
 
@@ -87,7 +87,6 @@ class Sale:
     def _add_or_update(self, product_id, quantity, action='set'):
         '''Add item as a line or if a line with item exists
         update it for the quantity
-
         :param product: ID of the product
         :param quantity: Quantity
         :param action: set - set the quantity to the given quantity
@@ -95,51 +94,38 @@ class Sale:
         '''
         SaleLine = Pool().get('sale.line')
 
-        order_line = self.find_existing_line(product_id)
+        order_line = self.find_existing_line(product_id, action)
+        values = {
+            'product': product_id,
+            'sale': self.id,
+            '_parent_sale.currency': self.currency.id,
+            '_parent_sale.party': self.party.id,
+            '_parent_sale.price_list': (
+                self.price_list.id if self.price_list else None
+            ),
+            'type': 'line',
+        }
         if order_line:
-            values = {
-                'product': product_id,
-                '_parent_sale.currency': self.currency.id,
-                '_parent_sale.party': self.party.id,
-                '_parent_sale.price_list': (
-                    self.price_list.id if self.price_list else None
-                ),
+            values.update({
                 'unit': order_line.unit.id,
                 'quantity': quantity if action == 'set'
                     else quantity + order_line.quantity,
-                'type': 'line',
-            }
-            values.update(SaleLine(**values).on_change_quantity())
-
-            new_values = {}
-            for key, value in values.iteritems():
-                if '.' not in key:
-                    new_values[key] = value
-            SaleLine.write([order_line], new_values)
-            return order_line
+            })
         else:
-            values = {
-                'product': product_id,
-                '_parent_sale.currency': self.currency.id,
-                '_parent_sale.party': self.party.id,
-                'sale': self.id,
-                'type': 'line',
+            values.update({
                 'sequence': 10,
                 'quantity': quantity,
                 'unit': None,
                 'description': None,
-            }
-            if self.price_list:
-                values['_parent_sale.price_list'] = self.price_list.id
+            })
             values.update(SaleLine(**values).on_change_product())
-            values.update(SaleLine(**values).on_change_quantity())
-            new_values = {}
-            for key, value in values.iteritems():
-                if '.' not in key:
-                    new_values[key] = value
-                if key == 'taxes' and value:
-                    new_values[key] = [('add', value)]
-            return SaleLine.create([new_values])[0]
+            order_line = SaleLine()
+
+        values.update(SaleLine(**values).on_change_quantity())
+        for key, value in values.iteritems():
+            if '.' not in key:
+                setattr(order_line, key, value)
+        return order_line
 
 
 class SaleLine:

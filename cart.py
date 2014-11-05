@@ -7,7 +7,6 @@
     :copyright: (c) 2010-2014 by Openlabs Technologies & Consulting (P) LTD
     :license: GPLv3, see LICENSE for more details
 '''
-import warnings
 from decimal import Decimal
 from functools import partial
 
@@ -18,6 +17,7 @@ from nereid.globals import session, current_app
 from flask.ext.login import user_logged_in
 from werkzeug import redirect
 from babel import numbers
+from werkzeug.wrappers import BaseResponse
 
 
 from trytond.model import ModelSQL, fields
@@ -348,9 +348,12 @@ class Cart(ModelSQL):
                 flash(_("This product is not for sale"))
                 return redirect(request.referrer)
 
-            cart.sale._add_or_update(
-                form.product.data, form.quantity.data, action
-            )
+            sale_line = cart._add_or_update(form, action)
+            # If the response is an instance of BaseResponse, then return it
+            if isinstance(sale_line, BaseResponse):
+                return sale_line
+            sale_line.save()
+
             if action == 'add':
                 flash(_('The product has been added to your cart'), 'info')
             else:
@@ -360,21 +363,17 @@ class Cart(ModelSQL):
 
         return redirect(url_for('nereid.cart.view_cart'))
 
-    def _add_or_update(self, product_id, quantity, action='set'):
+    def _add_or_update(self, form, action='set'):
         '''Add item as a line or if a line with item exists
         update it for the quantity
 
-        :param product: ID of the product
-        :param quantity: Quantity
+        :param form: WTForm to update cart.
         :param action: set - set the quantity to the given quantity
                        add - add quantity to existing quantity
         '''
-        warnings.warn(
-            "cart._add_or_update will be deprecated. "
-            "Use cart.sale._add_or_update instead",
-            DeprecationWarning, stacklevel=2
+        return self.sale._add_or_update(
+            form.product.data, form.quantity.data, action
         )
-        return self.sale._add_or_update(product_id, quantity, action)
 
     @classmethod
     @route('/cart/delete/<int:line>', methods=['DELETE', 'POST'])
@@ -451,7 +450,10 @@ class Cart(ModelSQL):
             to_cart = cls.open_cart(True)
             # Transfer lines from one cart to another
             for from_line in guest_cart.sale.lines:
-                to_cart._add_or_update(from_line.product.id, from_line.quantity)
+                to_line = to_cart.sale._add_or_update(
+                    from_line.product.id, from_line.quantity
+                )
+                to_line.save()
 
         # Clear and delete the old cart
         guest_cart._clear_cart()
