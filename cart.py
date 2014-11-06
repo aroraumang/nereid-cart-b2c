@@ -308,6 +308,13 @@ class Cart(ModelSQL):
         self.save()
 
     @classmethod
+    def get_add_to_cart_form(cls):
+        """
+        Return the form used to add products to cart
+        """
+        return AddtoCartForm()
+
+    @classmethod
     @route('/cart/add', methods=['POST'])
     def add_to_cart(cls):
         """
@@ -325,7 +332,7 @@ class Cart(ModelSQL):
         """
         Product = Pool().get('product.product')
 
-        form = AddtoCartForm()
+        form = cls.get_add_to_cart_form()
         if form.validate_on_submit():
             cart = cls.open_cart(create_order=True)
             action = request.values.get('action', 'set')
